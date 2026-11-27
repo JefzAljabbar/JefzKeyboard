@@ -31,7 +31,7 @@ open class KeyboardView(ctx: Context) : View(ctx) {
     protected open fun rowH(): Float =
         (if (resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) 40 else 52) * d
 
-    fun setLayer(l: Layer?) { layer = l; requestLayout(); build(); invalidate() }
+    fun showLayer(l: Layer?) { layer = l; requestLayout(); build(); invalidate() }
 
     override fun onMeasure(w: Int, h: Int) {
         setMeasuredDimension(MeasureSpec.getSize(w), ((layer?.rows ?: 4) * rowH()).toInt())

@@ -44,7 +44,7 @@ class Ime : InputMethodService() {
         super.onStartInputView(info, restarting)
         layers = Layouts.load(prefs)
         v.haptic = prefs.getBoolean("haptic", true)
-        v.setLayer(layers.firstOrNull { it.name == "abc" } ?: layers.firstOrNull())
+        v.showLayer(layers.firstOrNull { it.name == "abc" } ?: layers.firstOrNull())
         showKb()
         mods.clear(); shift = 0
         val text = info.inputType and InputType.TYPE_MASK_CLASS == InputType.TYPE_CLASS_TEXT
@@ -104,7 +104,7 @@ class Ime : InputMethodService() {
             a == "SETTINGS" -> startActivity(Intent(this, SettingsActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             a.startsWith("LAYER:") -> {
                 val n = a.substring(6)
-                layers.firstOrNull { it.name == n }?.let { v.setLayer(it) }
+                layers.firstOrNull { it.name == n }?.let { v.showLayer(it) }
             }
         }
     }

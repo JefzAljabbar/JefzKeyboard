@@ -104,7 +104,7 @@ class LayoutEditorActivity : Activity() {
             setBackgroundColor(0xFF121212.toInt())
             addView(bar(layerBtn, snapBtn, btn("+ Tombol") { addKey() }, btn("+ Baris") { rows(1) }, btn("− Baris") { rows(-1) }))
             addView(bar(btn("Layer baru") { newLayer() }, btn("Hapus layer") { delLayer() },
-                btn("Ekspor") { export() }, btn("Impor") { import() }, btn("Reset") { reset() }, btn("Selesai") { finish() }))
+                btn("Ekspor") { exportLayout() }, btn("Impor") { importLayout() }, btn("Reset") { reset() }, btn("Selesai") { finish() }))
             addView(TextView(this@LayoutEditorActivity).apply {
                 text = "Seret tombol untuk memindah · ketuk untuk edit · otomatis tersimpan"
                 textSize = 12f; setTextColor(0xFF9AA0B5.toInt()); setPadding((12 * d).toInt(), (6 * d).toInt(), 0, (6 * d).toInt())
@@ -121,7 +121,7 @@ class LayoutEditorActivity : Activity() {
     }
 
     private fun show() {
-        ev.setLayer(layers[cur])
+        ev.showLayer(layers[cur])
         layerBtn.text = "Layer: ${layers[cur].name}"
     }
 
@@ -141,7 +141,7 @@ class LayoutEditorActivity : Activity() {
             AlertDialog.Builder(this).setTitle(names[i]).setItems(shown.toTypedArray()) { _, j ->
                 val k = list[j].copy(x = 0f, y = 0f)
                 layers[cur].keys.add(k)
-                ev.setLayer(layers[cur])
+                ev.showLayer(layers[cur])
                 if (k.value.isEmpty()) editKey(k)
             }.show()
         }.show()
@@ -153,7 +153,7 @@ class LayoutEditorActivity : Activity() {
         if (n < 1) return
         l.rows = n
         l.keys.forEach { if (it.y + it.h > n) it.y = maxOf(0f, n - it.h) }
-        ev.setLayer(l)
+        ev.showLayer(l)
     }
 
     private fun newLayer() {
@@ -171,13 +171,13 @@ class LayoutEditorActivity : Activity() {
         layers.removeAt(cur); cur = 0; show()
     }
 
-    private fun export() {
+    private fun exportLayout() {
         (getSystemService(CLIPBOARD_SERVICE) as ClipboardManager)
             .setPrimaryClip(ClipData.newPlainText("layout", Layouts.toJson(layers)))
         toast("Layout disalin ke clipboard")
     }
 
-    private fun import() {
+    private fun importLayout() {
         val cm = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
         val t = cm.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.text?.toString() ?: ""
         try {
@@ -230,9 +230,9 @@ class LayoutEditorActivity : Activity() {
                 fh.text.toString().replace(',', '.').toFloatOrNull()?.let { if (it > 0) k.h = it }
                 k.x = k.x.coerceIn(0f, maxOf(0f, 1f - k.w))
                 k.y = k.y.coerceIn(0f, maxOf(0f, layers[cur].rows - k.h))
-                ev.setLayer(layers[cur])
+                ev.showLayer(layers[cur])
             }
-            .setNeutralButton("Hapus") { _, _ -> layers[cur].keys.removeAll { it === k }; ev.setLayer(layers[cur]) }
+            .setNeutralButton("Hapus") { _, _ -> layers[cur].keys.removeAll { it === k }; ev.showLayer(layers[cur]) }
             .setNegativeButton("Batal", null).show()
     }
 }
