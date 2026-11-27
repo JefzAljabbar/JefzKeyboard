@@ -67,6 +67,7 @@ class SettingsActivity : Activity() {
         sw("Auto kapital setelah titik", "autocap")
         sw("Enter = baris baru (tidak kirim pesan)", "enternl")
         sw("Getar saat ketik", "haptic")
+        sw("Simpan riwayat copy/cut", "cliphist")
         slider("Tinggi keyboard", "hpct", 60, 160, 100)
         slider("Ukuran font", "fpct", 60, 160, 100)
 
@@ -80,6 +81,13 @@ class SettingsActivity : Activity() {
         btn("Aktifkan Layanan Aksesibilitas") { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
         status = TextView(this).also { root.addView(it) }
         slider("Kecepatan pointer", "padspeed", 50, 400, 150)
+        slider("Kecepatan scroll", "scrollspeed", 50, 400, 150)
+        val rg2 = RadioGroup(this)
+        rg2.addView(RadioButton(this).apply { text = "Scroll halus (gesture)"; id = 111 })
+        rg2.addView(RadioButton(this).apply { text = "Scroll per halaman (aksi Aksesibilitas)"; id = 112 })
+        rg2.check(if (p.getString("scrollmode", "gesture") == "action") 112 else 111)
+        rg2.setOnCheckedChangeListener { _, id -> p.edit().putString("scrollmode", if (id == 112) "action" else "gesture").apply() }
+        root.addView(rg2)
         sw("Ketuk pad = klik kiri", "taptoclick")
         sw("Arah scroll dibalik", "scrollinv", false)
 

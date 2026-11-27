@@ -47,7 +47,7 @@ class PadPanel(
     private var hOff = 0f
 
     private fun svc(): PadService? = if (prefs.getString("padmode", "pointer") == "pointer") PadService.instance else null
-    private fun scrollK() = 3f * (if (prefs.getBoolean("scrollinv", false)) -1f else 1f)
+    private fun scrollK() = 2f * prefs.getInt("scrollspeed", 150) / 100f * (if (prefs.getBoolean("scrollinv", false)) -1f else 1f)
     private fun buzz() { if (prefs.getBoolean("haptic", true)) performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP) }
 
     override fun onSizeChanged(w: Int, h: Int, ow: Int, oh: Int) {
@@ -56,14 +56,15 @@ class PadPanel(
         bBack.set(g, top + g, w * 0.2f - g / 2, h - g)
         bL.set(w * 0.2f + g / 2, top + g, w * 0.6f - g / 2, h - g)
         bR.set(w * 0.6f + g / 2, top + g, w - g, h - g)
-        vs.set(w - st - g, g, w - g, top - g)
-        hs.set(g, top - g - st, w - st - 2 * g, top - g)
-        pad.set(g, g, w - st - 2 * g, top - 2 * g - st)
+        vs.set(g, g, g + st, top - g)
+        hs.set(st + 2 * g, top - g - st, w - g, top - g)
+        pad.set(st + 2 * g, g, w - g, top - 2 * g - st)
     }
 
     override fun onVisibilityChanged(cv: View, vis: Int) {
         super.onVisibilityChanged(cv, vis)
         if (vis != VISIBLE) {
+            PadService.instance?.scrollEnd()
             if (dragging) PadService.instance?.dragEnd()
             dragging = false; lHeld = false; ptrs.clear(); padPointers = 0; vOff = 0f; hOff = 0f
         }
@@ -210,8 +211,8 @@ class PadPanel(
                 lRun = null
                 if (dragging) { dragging = false; s?.dragEnd() } else if (s != null) { buzz(); s.click() }
             }
-            1 -> vOff = 0f
-            2 -> hOff = 0f
+            1 -> { vOff = 0f; PadService.instance?.scrollEnd() }
+            2 -> { hOff = 0f; PadService.instance?.scrollEnd() }
         }
     }
 }

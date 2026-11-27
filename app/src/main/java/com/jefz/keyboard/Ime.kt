@@ -1,5 +1,6 @@
 package com.jefz.keyboard
 
+import android.content.ClipboardManager
 import android.content.Intent
 import android.inputmethodservice.InputMethodService
 import android.os.SystemClock
@@ -16,6 +17,9 @@ class Ime : InputMethodService() {
     private lateinit var v: KeyboardView
     private lateinit var emoji: EmojiView
     private lateinit var pad: PadPanel
+    private lateinit var clip: ClipPanel
+    private var cm: ClipboardManager? = null
+    private val clipListener = ClipboardManager.OnPrimaryClipChangedListener { recordClip() }
     private var layers: List<Layer> = emptyList()
     private var shift = 0 // 0 off, 1 sekali, 2 caps
     private val mods = HashMap<String, Int>() // 0 off, 1 sekali, 2 lock
@@ -25,6 +29,28 @@ class Ime : InputMethodService() {
     private val ALT = KeyEvent.META_ALT_ON or KeyEvent.META_ALT_LEFT_ON
     private val WIN = KeyEvent.META_META_ON or KeyEvent.META_META_LEFT_ON
     private val SHF = KeyEvent.META_SHIFT_ON or KeyEvent.META_SHIFT_LEFT_ON
+
+    override fun onCreate() {
+        super.onCreate()
+        cm = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+        cm?.addPrimaryClipChangedListener(clipListener)
+    }
+
+    override fun onDestroy() {
+        cm?.removePrimaryClipChangedListener(clipListener)
+        super.onDestroy()
+    }
+
+    // riwayat copy/cut: mencatat setiap perubahan clipboard selama JefzKeyboard jadi keyboard aktif
+    private fun recordClip() {
+        try {
+            val c = cm?.primaryClip ?: return
+            if (c.itemCount == 0) return
+            if (c.description?.extras?.getBoolean("android.content.extra.IS_SENSITIVE") == true) return
+            val t = c.getItemAt(0).coerceToText(this)?.toString() ?: return
+            Clips.add(prefs, t, false)
+        } catch (e: Exception) { }
+    }
 
     override fun onCreateInputView(): View {
         val d = resources.displayMetrics.density
@@ -39,10 +65,17 @@ class Ime : InputMethodService() {
         emoji.visibility = View.GONE
         pad = PadPanel(this, prefs, { showKb() }, { h, vv, sel -> nav(h, vv, sel) }, { currentInputConnection?.performContextMenuAction(android.R.id.paste) })
         pad.visibility = View.GONE
+        clip = ClipPanel(this, prefs, { showKb() }, { commit(it) }, {
+            val sel = currentInputConnection?.getSelectedText(0)?.toString()
+            if (!sel.isNullOrEmpty()) sel
+            else cm?.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(this)?.toString()
+        })
+        clip.visibility = View.GONE
         return FrameLayout(this).apply {
             addView(v, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT))
             addView(emoji, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, (270 * d).toInt()))
             addView(pad, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, (270 * d).toInt()))
+            addView(clip, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, (270 * d).toInt()))
         }
     }
 
@@ -60,8 +93,15 @@ class Ime : InputMethodService() {
         v.invalidate()
     }
 
-    private fun showKb() { emoji.visibility = View.GONE; pad.visibility = View.GONE; v.visibility = View.VISIBLE; PadService.instance?.hidePointer() }
+    private fun showKb() { emoji.visibility = View.GONE; pad.visibility = View.GONE; clip.visibility = View.GONE; v.visibility = View.VISIBLE; PadService.instance?.hidePointer() }
     private fun showEmoji() { emoji.refresh(); v.visibility = View.GONE; emoji.visibility = View.VISIBLE }
+    private fun showClip() {
+        val h = maxOf(v.height, (240 * resources.displayMetrics.density).toInt())
+        clip.layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, h)
+        clip.refresh()
+        v.visibility = View.GONE; emoji.visibility = View.GONE; pad.visibility = View.GONE; clip.visibility = View.VISIBLE
+    }
+
     private fun showPad() {
         val h = maxOf(v.height, (240 * resources.displayMetrics.density).toInt())
         pad.layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, h)
@@ -123,6 +163,7 @@ class Ime : InputMethodService() {
             }
             a == "ACTION" -> action(ic)
             a == "TOUCHPAD" -> showPad()
+            a == "CLIP" -> showClip()
             a == "EMOJI" -> showEmoji()
             a == "HIDE" -> requestHideSelf(0)
             a == "SWITCH" -> (getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager).showInputMethodPicker()
