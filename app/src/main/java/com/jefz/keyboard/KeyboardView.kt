@@ -17,6 +17,7 @@ open class KeyboardView(ctx: Context) : View(ctx) {
     var active: (Key) -> Boolean = { false }
     var shifted: () -> Boolean = { false }
     var haptic = true
+    var onCursor: (Int) -> Unit = {}
 
     protected val d = resources.displayMetrics.density
     protected val gap = 3 * d
@@ -27,6 +28,9 @@ open class KeyboardView(ctx: Context) : View(ctx) {
     private val fired = HashSet<Int>()
     private val hd = Handler(Looper.getMainLooper())
     private var rep: Runnable? = null
+    private val trackX = HashMap<Int, Float>()
+    private val scrolled = HashSet<Int>()
+    private fun isSpace(k: Key) = k.type == "act" && k.value == "SPACE" && k.lp.isEmpty()
 
     protected open fun rowH(): Float =
         (if (resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) 40 else 52) * d
@@ -79,19 +83,36 @@ open class KeyboardView(ctx: Context) : View(ctx) {
                 val i = e.actionIndex
                 val id = e.getPointerId(i)
                 val k = cells.lastOrNull { it.first.contains(e.getX(i), e.getY(i)) }?.second
-                if (k != null) { down[id] = k; press(id, k) }
+                if (k != null) { down[id] = k; press(id, k, e.getX(i)) }
                 invalidate()
+            }
+            MotionEvent.ACTION_MOVE -> {
+                val step = 12 * d
+                for (i in 0 until e.pointerCount) {
+                    val id = e.getPointerId(i)
+                    var x = trackX[id] ?: continue
+                    val cx = e.getX(i)
+                    while (cx - x >= step) { x += step; tick(id); onCursor(1) }
+                    while (x - cx >= step) { x -= step; tick(id); onCursor(-1) }
+                    trackX[id] = x
+                }
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP -> release(e.getPointerId(e.actionIndex))
             MotionEvent.ACTION_CANCEL -> {
                 for (r in pend.values) hd.removeCallbacks(r)
-                pend.clear(); down.clear(); fired.clear(); stopRep(); invalidate()
+                pend.clear(); down.clear(); fired.clear(); trackX.clear(); scrolled.clear(); stopRep(); invalidate()
             }
         }
         return true
     }
 
-    private fun press(id: Int, k: Key) {
+    private fun tick(id: Int) {
+        scrolled.add(id)
+        if (haptic) performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+    }
+
+    private fun press(id: Int, k: Key, x: Float) {
+        if (isSpace(k)) { trackX[id] = x; return }
         if (k.lp.isEmpty()) { fire(k); return }
         val r = Runnable { fired.add(id); fire(Key.spec(k.lp)) }
         pend[id] = r
@@ -101,7 +122,11 @@ open class KeyboardView(ctx: Context) : View(ctx) {
     private fun release(id: Int) {
         val k = down.remove(id)
         pend.remove(id)?.let { hd.removeCallbacks(it) }
-        if (k != null && k.lp.isNotEmpty() && !fired.remove(id)) fire(k)
+        trackX.remove(id)
+        if (k != null) {
+            if (isSpace(k)) { if (!scrolled.remove(id)) fire(k) }
+            else if (k.lp.isNotEmpty() && !fired.remove(id)) fire(k)
+        }
         stopRep(); invalidate()
     }
 

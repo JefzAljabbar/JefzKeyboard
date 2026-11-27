@@ -24,7 +24,7 @@ class Layer(var name: String, var rows: Int, val keys: MutableList<Key>)
 object Layouts {
     private fun mk(l: String, t: String, v: String, w: Float = 1f, lp: String = "") = Key(l, t, v, 0f, 0f, w, 1f, lp)
     private fun c(s: String, lp: String = "") = mk(s, "char", s, 1f, lp)
-    private fun a(l: String, v: String, w: Float = 1f) = mk(l, "act", v, w)
+    private fun a(l: String, v: String, w: Float = 1f, lp: String = "") = mk(l, "act", v, w, lp)
     private fun k(l: String, code: String) = mk(l, "code", code)
     private fun m(l: String, v: String) = mk(l, "mod", v)
     private fun chars(s: String) = s.map { c(it.toString()) }
@@ -47,7 +47,7 @@ object Layouts {
     fun default(): List<Layer> {
         val top = "qwertyuiop".mapIndexed { i, ch -> c(ch.toString(), "char:${(i + 1) % 10}") }
         val bottom = { first: Key ->
-            listOf(first, c(","), a("😀", "EMOJI"), a("space", "SPACE", 4f), c("."), a("⏎", "ENTER", 1.5f))
+            listOf(first, c(","), a("😀", "EMOJI"), a("space", "SPACE", 4f), c("."), a("⏎", "ENTER", 1.5f, "act:ACTION"))
         }
         val abc = Layer("abc", 4, lay(listOf(
             top to 0f,
@@ -134,7 +134,7 @@ object Catalog {
                 t("Play", "code", "MEDIA_PLAY_PAUSE"), t("Next", "code", "MEDIA_NEXT"), t("Prev", "code", "MEDIA_PREVIOUS")),
             "HP: Aksi" to listOf(
                 t("⇧", "act", "SHIFT"), t("⌫", "act", "DEL"), t("⏎", "act", "ENTER"), t("space", "act", "SPACE"),
-                t("😀", "act", "EMOJI"), t("Tutup", "act", "HIDE"), t("Ganti", "act", "SWITCH"), t("⚙", "act", "SETTINGS")),
+                t("😀", "act", "EMOJI"), t("Tutup", "act", "HIDE"), t("Ganti", "act", "SWITCH"), t("Kirim", "act", "ACTION"), t("⚙", "act", "SETTINGS")),
             "Kustom (teks/snippet)" to listOf(t("?", "char", ""))
         )
     }

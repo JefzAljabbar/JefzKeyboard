@@ -102,7 +102,7 @@ class LayoutEditorActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(0, (28 * d).toInt(), 0, 0)
             setBackgroundColor(0xFF121212.toInt())
-            addView(bar(layerBtn, snapBtn, btn("+ Tombol") { addKey() }, btn("+ Baris") { rows(1) }, btn("− Baris") { rows(-1) }))
+            addView(bar(layerBtn, snapBtn, btn("+ Tombol") { addKey() }, btn("+ Tambah") { edgeDialog(true) }, btn("− Hapus") { edgeDialog(false) }))
             addView(bar(btn("Layer baru") { newLayer() }, btn("Hapus layer") { delLayer() },
                 btn("Ekspor") { exportLayout() }, btn("Impor") { importLayout() }, btn("Reset") { reset() }, btn("Selesai") { finish() }))
             addView(TextView(this@LayoutEditorActivity).apply {
@@ -147,12 +147,29 @@ class LayoutEditorActivity : Activity() {
         }.show()
     }
 
-    private fun rows(delta: Int) {
+    private fun edgeDialog(add: Boolean) {
+        AlertDialog.Builder(this).setTitle(if (add) "Tambah" else "Hapus")
+            .setItems(arrayOf("Baris di atas", "Baris di bawah", "Kolom di kiri", "Kolom di kanan")) { _, i -> edge(i, add) }
+            .show()
+    }
+
+    private fun edge(i: Int, add: Boolean) {
         val l = layers[cur]
-        val n = l.rows + delta
-        if (n < 1) return
-        l.rows = n
-        l.keys.forEach { if (it.y + it.h > n) it.y = maxOf(0f, n - it.h) }
+        val u = 0.1f // lebar satu kolom
+        when (i) {
+            0 -> if (add) { l.rows++; l.keys.forEach { it.y += 1f } }
+                 else if (l.rows > 1) { l.rows--; l.keys.removeAll { it.y < 1f }; l.keys.forEach { it.y -= 1f } }
+            1 -> if (add) l.rows++
+                 else if (l.rows > 1) { l.rows--; l.keys.removeAll { it.y >= l.rows } }
+            2 -> if (add) l.keys.forEach { it.x = (it.x + u) / (1 + u); it.w = it.w / (1 + u) }
+                 else { l.keys.removeAll { it.x + it.w / 2 < u }; l.keys.forEach { it.x = maxOf(0f, (it.x - u) / (1 - u)); it.w = it.w / (1 - u) } }
+            3 -> if (add) l.keys.forEach { it.x = it.x / (1 + u); it.w = it.w / (1 + u) }
+                 else { l.keys.removeAll { it.x + it.w / 2 > 1 - u }; l.keys.forEach { it.x = it.x / (1 - u); it.w = it.w / (1 - u) } }
+        }
+        l.keys.forEach {
+            it.x = it.x.coerceIn(0f, maxOf(0f, 1f - it.w))
+            it.y = it.y.coerceIn(0f, maxOf(0f, l.rows - it.h))
+        }
         ev.showLayer(l)
     }
 

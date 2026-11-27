@@ -32,6 +32,7 @@ class SettingsActivity : Activity() {
         btn("2. Pilih keyboard") { (getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager).showInputMethodPicker() }
         btn("Edit tata letak") { startActivity(Intent(this, LayoutEditorActivity::class.java)) }
         sw("Auto kapital setelah titik", "autocap")
+        sw("Enter = baris baru (tidak kirim pesan)", "enternl")
         sw("Getar saat ketik", "haptic")
         root.addView(EditText(this).apply { hint = "Tes ketik di sini" })
         setContentView(root)

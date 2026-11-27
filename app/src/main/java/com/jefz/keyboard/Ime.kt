@@ -30,6 +30,9 @@ class Ime : InputMethodService() {
         v.onKey = { handle(it) }
         v.active = { (it.type == "mod" && (mods[it.value] ?: 0) > 0) || (it.type == "act" && it.value == "SHIFT" && shift > 0) }
         v.shifted = { shift > 0 }
+        v.onCursor = { dir ->
+            currentInputConnection?.let { ic -> send(ic, if (dir > 0) KeyEvent.KEYCODE_DPAD_RIGHT else KeyEvent.KEYCODE_DPAD_LEFT) }
+        }
         emoji = EmojiView(this, prefs, { commit(it) }, { showKb() }, {
             currentInputConnection?.let { ic -> send(ic, KeyEvent.KEYCODE_DEL) }
         })
@@ -98,6 +101,7 @@ class Ime : InputMethodService() {
                 if (hasMods()) send(ic, KeyEvent.KEYCODE_SPACE) else ic.commitText(" ", 1)
                 consume(); autoCap(ic)
             }
+            a == "ACTION" -> action(ic)
             a == "EMOJI" -> showEmoji()
             a == "HIDE" -> requestHideSelf(0)
             a == "SWITCH" -> (getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager).showInputMethodPicker()
@@ -110,6 +114,14 @@ class Ime : InputMethodService() {
     }
 
     private fun enter(ic: InputConnection) {
+        if (hasMods()) { send(ic, KeyEvent.KEYCODE_ENTER); return }
+        val ei = currentInputEditorInfo
+        val multi = ((ei?.inputType ?: 0) and InputType.TYPE_TEXT_FLAG_MULTI_LINE) != 0
+        val isSend = ((ei?.imeOptions ?: 0) and EditorInfo.IME_MASK_ACTION) == EditorInfo.IME_ACTION_SEND
+        if (prefs.getBoolean("enternl", true) && (multi || isSend)) ic.commitText("\n", 1) else action(ic)
+    }
+
+    private fun action(ic: InputConnection) {
         val o = currentInputEditorInfo?.imeOptions ?: 0
         val act = o and EditorInfo.IME_MASK_ACTION
         if (o and EditorInfo.IME_FLAG_NO_ENTER_ACTION == 0 && act != EditorInfo.IME_ACTION_NONE && act != EditorInfo.IME_ACTION_UNSPECIFIED)
