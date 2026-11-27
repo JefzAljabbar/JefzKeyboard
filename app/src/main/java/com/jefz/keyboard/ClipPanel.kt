@@ -52,12 +52,14 @@ class ClipPanel(
     ctx: Context,
     private val prefs: SharedPreferences,
     private val onBack: () -> Unit,
-    private val onPick: (String) -> Unit,
-    private val newPin: () -> String?
+    private val onPick: (String) -> Unit
 ) : LinearLayout(ctx) {
     private val d = resources.displayMetrics.density
     private var items = mutableListOf<ClipItem>()
     private var shown = listOf<ClipItem>()
+    private val sel = HashSet<ClipItem>()
+    private var mode = 0 // 0 biasa, 1 pilih item untuk dihapus, 2 konfirmasi hapus
+    private val bar = LinearLayout(ctx)
     private val list = ListView(ctx)
     private val empty = TextView(ctx)
     private val adapter = object : BaseAdapter() {
@@ -70,20 +72,7 @@ class ClipPanel(
     init {
         orientation = VERTICAL
         setBackgroundColor(0xFF1B1B1B.toInt())
-        val bar = LinearLayout(ctx)
-        fun tab(t: String, f: () -> Unit) = TextView(ctx).apply {
-            text = t; textSize = 15f; gravity = Gravity.CENTER
-            setTextColor(0xFFFFFFFF.toInt())
-            setPadding((14 * d).toInt(), (10 * d).toInt(), (14 * d).toInt(), (10 * d).toInt())
-            setOnClickListener { f() }
-        }
-        bar.addView(tab("ABC") { onBack() })
-        bar.addView(tab("＋ Pin") {
-            newPin()?.takeIf { it.isNotBlank() }?.let { Clips.add(prefs, it, true); refresh() }
-        })
-        bar.addView(tab("Hapus riwayat") { items.removeAll { !it.pinned }; Clips.save(prefs, items); refresh() })
         addView(HorizontalScrollView(ctx).apply { addView(bar) })
-
         list.adapter = adapter
         list.divider = null
         empty.text = "Belum ada riwayat copy/cut.\nSalin teks di app mana pun."
@@ -97,34 +86,94 @@ class ClipPanel(
 
     fun refresh() {
         items = Clips.load(prefs)
-        shown = items.sortedByDescending { it.pinned }
+        sel.clear()
+        mode = 0
+        recompute()
+        render()
+    }
+
+    private fun recompute() { shown = items.sortedByDescending { it.pinned } }
+
+    private fun tab(t: String, col: Int = 0xFFFFFFFF.toInt(), f: () -> Unit) = TextView(context).apply {
+        text = t; textSize = 15f; gravity = Gravity.CENTER
+        setTextColor(col)
+        setPadding((14 * d).toInt(), (10 * d).toInt(), (14 * d).toInt(), (10 * d).toInt())
+        setOnClickListener { f() }
+    }
+
+    private fun render() {
+        bar.removeAllViews()
+        when (mode) {
+            0 -> {
+                bar.addView(tab("ABC") { onBack() })
+                bar.addView(tab("🗑 Hapus…") { mode = 1; sel.clear(); render() })
+            }
+            1 -> {
+                bar.addView(tab("Batal") { mode = 0; sel.clear(); render() })
+                bar.addView(tab(if (shown.isNotEmpty() && sel.size == shown.size) "Semua ✓" else "Semua") {
+                    if (sel.size == shown.size) sel.clear() else { sel.clear(); sel.addAll(shown) }
+                    render()
+                })
+                bar.addView(tab("Hapus (${sel.size})", if (sel.isEmpty()) 0xFF6B6F80.toInt() else 0xFFFF6B6B.toInt()) {
+                    if (sel.isNotEmpty()) { mode = 2; render() }
+                })
+            }
+            else -> {
+                val pins = sel.count { it.pinned }
+                bar.addView(TextView(context).apply {
+                    text = "Hapus ${sel.size} item" + (if (pins > 0) " (termasuk $pins pin)" else "") + "?"
+                    textSize = 15f; setTextColor(0xFFFFFFFF.toInt())
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding((14 * d).toInt(), (10 * d).toInt(), (6 * d).toInt(), (10 * d).toInt())
+                })
+                bar.addView(tab("YA, HAPUS", 0xFFFF6B6B.toInt()) {
+                    items.removeAll { it in sel }
+                    Clips.save(prefs, items)
+                    sel.clear(); mode = 0; recompute(); render()
+                })
+                bar.addView(tab("Batal") { mode = 1; render() })
+            }
+        }
         adapter.notifyDataSetChanged()
         empty.visibility = if (shown.isEmpty()) View.VISIBLE else View.GONE
     }
 
     private fun row(c: ClipItem): View {
         val pad = (8 * d).toInt()
+        val picked = c in sel
         val row = LinearLayout(context).apply {
             gravity = Gravity.CENTER_VERTICAL
-            setBackgroundColor(if (c.pinned) 0xFF26304A.toInt() else 0xFF1B1B1B.toInt())
+            setBackgroundColor(when {
+                picked -> 0xFF3A2A2A.toInt()
+                c.pinned -> 0xFF26304A.toInt()
+                else -> 0xFF1B1B1B.toInt()
+            })
             setPadding((12 * d).toInt(), (2 * d).toInt(), (4 * d).toInt(), (2 * d).toInt())
+        }
+        if (mode != 0) {
+            row.addView(TextView(context).apply {
+                text = if (picked) "☑" else "☐"; textSize = 22f
+                setTextColor(if (picked) 0xFFFF6B6B.toInt() else 0xFF9AA0B5.toInt())
+                setPadding(0, 0, pad + pad / 2, 0)
+            })
         }
         row.addView(TextView(context).apply {
             text = c.text; maxLines = 2; ellipsize = TextUtils.TruncateAt.END; textSize = 14f
             setTextColor(0xFFFFFFFF.toInt())
             setPadding(0, pad, 0, pad)
-            setOnClickListener { onPick(c.text) }
+            setOnClickListener {
+                when (mode) {
+                    0 -> onPick(c.text)
+                    1 -> { if (c in sel) sel.remove(c) else sel.add(c); render() }
+                }
+            }
         }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        fun btn(t: String, col: Int, f: () -> Unit) = TextView(context).apply {
-            text = t; textSize = 20f; gravity = Gravity.CENTER
-            setTextColor(col)
+        row.addView(TextView(context).apply {
+            text = if (c.pinned) "★" else "☆"; textSize = 22f; gravity = Gravity.CENTER
+            setTextColor(if (c.pinned) 0xFFFFC107.toInt() else 0xFF9AA0B5.toInt())
             setPadding(pad + pad / 2, pad, pad + pad / 2, pad)
-            setOnClickListener { f() }
-        }
-        row.addView(btn(if (c.pinned) "★" else "☆", if (c.pinned) 0xFFFFC107.toInt() else 0xFF9AA0B5.toInt()) {
-            c.pinned = !c.pinned; Clips.save(prefs, items); refresh()
+            if (mode == 0) setOnClickListener { c.pinned = !c.pinned; Clips.save(prefs, items); recompute(); render() }
         })
-        row.addView(btn("✕", 0xFF9AA0B5.toInt()) { items.remove(c); Clips.save(prefs, items); refresh() })
         return row
     }
 }

@@ -83,8 +83,8 @@ class SettingsActivity : Activity() {
         slider("Kecepatan pointer", "padspeed", 50, 400, 150)
         slider("Kecepatan scroll", "scrollspeed", 50, 400, 150)
         val rg2 = RadioGroup(this)
-        rg2.addView(RadioButton(this).apply { text = "Scroll halus (gesture)"; id = 111 })
-        rg2.addView(RadioButton(this).apply { text = "Scroll per halaman (aksi Aksesibilitas)"; id = 112 })
+        rg2.addView(RadioButton(this).apply { text = "Seperti geser jari di teks (jalan saat slider dilepas)"; id = 111 })
+        rg2.addView(RadioButton(this).apply { text = "Aksi Aksesibilitas (langsung, hanya komponen scroll)"; id = 112 })
         rg2.check(if (p.getString("scrollmode", "gesture") == "action") 112 else 111)
         rg2.setOnCheckedChangeListener { _, id -> p.edit().putString("scrollmode", if (id == 112) "action" else "gesture").apply() }
         root.addView(rg2)

@@ -65,11 +65,7 @@ class Ime : InputMethodService() {
         emoji.visibility = View.GONE
         pad = PadPanel(this, prefs, { showKb() }, { h, vv, sel -> nav(h, vv, sel) }, { currentInputConnection?.performContextMenuAction(android.R.id.paste) })
         pad.visibility = View.GONE
-        clip = ClipPanel(this, prefs, { showKb() }, { commit(it) }, {
-            val sel = currentInputConnection?.getSelectedText(0)?.toString()
-            if (!sel.isNullOrEmpty()) sel
-            else cm?.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(this)?.toString()
-        })
+        clip = ClipPanel(this, prefs, { showKb() }, { commit(it) })
         clip.visibility = View.GONE
         return FrameLayout(this).apply {
             addView(v, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT))

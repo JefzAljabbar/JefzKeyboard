@@ -11,14 +11,13 @@ import android.graphics.Path
 import android.graphics.PixelFormat
 import android.graphics.Rect
 import android.os.Build
-import android.os.Handler
-import android.os.Looper
 import android.util.DisplayMetrics
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import kotlin.math.abs
 
 private class PointerView(ctx: Context) : View(ctx) {
     private val d = resources.displayMetrics.density
@@ -33,12 +32,17 @@ private class PointerView(ctx: Context) : View(ctx) {
     override fun onDraw(c: Canvas) { c.drawPath(arrow, fill); c.drawPath(arrow, line) }
 }
 
+private class Step(val x0: Float, val y0: Float, val x1: Float, val y1: Float, val dur: Long)
+
+/*
+ * CATATAN: Android membatalkan gesture buatan Aksesibilitas setiap kali ada sentuhan jari asli di layar.
+ * Karena itu semua gesture di sini hanya dikirim SETELAH jari dilepas dari panel touchpad.
+ */
 class PadService : AccessibilityService() {
     companion object { var instance: PadService? = null }
 
     var bottom = 0 // tinggi area keyboard (px); pointer/scroll tidak masuk ke area ini
     private lateinit var wm: WindowManager
-    private val hdl = Handler(Looper.getMainLooper())
     private var cursor: View? = null
     private var lp: WindowManager.LayoutParams? = null
     private var shown = false
@@ -49,13 +53,9 @@ class PadService : AccessibilityService() {
     private var py = 0f
     private var sw = 1080
     private var sh = 1920
-
-    private var dragger: Stroker? = null
+    private var playing = false
     private var startX = 0f
     private var startY = 0f
-    private var scroller: Stroker? = null
-    private var sFx = 0f
-    private var sFy = 0f
     private var accAx = 0f
     private var accAy = 0f
 
@@ -84,7 +84,6 @@ class PadService : AccessibilityService() {
 
     override fun onUnbind(intent: Intent?): Boolean {
         instance = null
-        scrollEnd(); dragger?.end(); dragger = null
         hidePointer()
         return super.onUnbind(intent)
     }
@@ -118,7 +117,7 @@ class PadService : AccessibilityService() {
         place()
     }
 
-    // ukur posisi jendela overlay yang sebenarnya di layar supaya titik pointer = titik klik
+    // ukur posisi jendela overlay yang sebenarnya di layar (status bar/notch) supaya titik pointer = titik klik
     private fun calibrate() {
         val v = cursor ?: return
         val loc = IntArray(2)
@@ -143,7 +142,7 @@ class PadService : AccessibilityService() {
         place()
     }
 
-    // ---------------- gesture dasar
+    // ---------------- gesture
     private fun gesture(s: List<StrokeDescription>, cb: AccessibilityService.GestureResultCallback? = null): Boolean {
         val b = GestureDescription.Builder()
         s.forEach { b.addStroke(it) }
@@ -154,97 +153,91 @@ class PadService : AccessibilityService() {
 
     fun click() { gesture(listOf(StrokeDescription(point(), 0, 50))) }
 
-    // klik kanan = tekan lama (membuka menu konteks)
+    // klik kanan = tekan lama (membuka menu konteks); dipanggil setelah tombol dilepas
     fun rightClick() { gesture(listOf(StrokeDescription(point(), 0, 700))) }
 
-    // satu jari yang bergerak terus-menerus (dipakai drag dan scroll)
-    private inner class Stroker(x: Float, y: Float) {
-        private var stroke: StrokeDescription? = null
-        private var last: StrokeDescription? = null
-        private var sx = x
-        private var sy = y
-        private var tx = x
-        private var ty = y
-        private var busy = false
-        private var ending = false
-        private val cb = object : AccessibilityService.GestureResultCallback() {
-            override fun onCompleted(g: GestureDescription?) { busy = false; pump() }
-            override fun onCancelled(g: GestureDescription?) { busy = false; stroke = null }
-        }
-
-        init {
-            if (Build.VERSION.SDK_INT >= 26) {
-                val s = StrokeDescription(Path().apply { moveTo(x, y) }, 0, 1, true)
-                stroke = s; last = s
-                busy = gesture(listOf(s), cb)
-            }
-        }
-
-        fun moveTo(x: Float, y: Float) { tx = x; ty = y; pump() }
-        fun end() { ending = true; pump() }
-
-        private fun pump() {
-            val s = stroke ?: return
-            if (busy) return
-            if (!ending && tx == sx && ty == sy) return
-            val path = Path().apply { moveTo(sx, sy); if (tx != sx || ty != sy) lineTo(tx, ty) }
-            val n = s.continueStroke(path, 0, if (ending) 120L else 16L, !ending)
-            sx = tx; sy = ty
-            stroke = if (ending) null else n
-            last = n
-            busy = gesture(listOf(n), cb)
-            if (busy) hdl.postDelayed({ if (busy && last === n) busy = false }, 800)
-        }
-    }
-
-    // ---------------- drag
-    fun dragStart() {
-        startX = px; startY = py
-        if (Build.VERSION.SDK_INT >= 26) dragger = Stroker(px, py)
-    }
-
-    fun dragPump() { dragger?.moveTo(px, py) }
-
-    fun dragEnd() {
+    // memutar beberapa langkah berurutan sebagai SATU jari yang tidak terangkat di antaranya
+    private fun playSteps(steps: List<Step>, done: (Boolean) -> Unit) {
         if (Build.VERSION.SDK_INT < 26) {
-            gesture(listOf(StrokeDescription(Path().apply { moveTo(startX, startY); lineTo(px, py) }, 0, 300)))
+            val f = steps.first(); val l = steps.last()
+            val path = Path().apply { moveTo(f.x0, f.y0); if (l.x1 != f.x0 || l.y1 != f.y0) lineTo(l.x1, l.y1) }
+            val ok = gesture(listOf(StrokeDescription(path, 0, steps.sumOf { it.dur })), object : AccessibilityService.GestureResultCallback() {
+                override fun onCompleted(g: GestureDescription?) { done(true) }
+                override fun onCancelled(g: GestureDescription?) { done(false) }
+            })
+            if (!ok) done(false)
             return
         }
-        dragger?.end(); dragger = null
+        play(steps, 0, null, done)
     }
 
-    // ---------------- scroll. dy > 0 = isi bergulir ke bawah (jari bergerak ke atas)
+    private fun play(steps: List<Step>, i: Int, prev: StrokeDescription?, done: (Boolean) -> Unit) {
+        if (i >= steps.size) { done(true); return }
+        val st = steps[i]
+        val path = Path().apply { moveTo(st.x0, st.y0); if (st.x1 != st.x0 || st.y1 != st.y0) lineTo(st.x1, st.y1) }
+        val more = i < steps.size - 1
+        val s = if (prev == null) StrokeDescription(path, 0, st.dur, more) else prev.continueStroke(path, 0, st.dur, more)
+        val ok = gesture(listOf(s), object : AccessibilityService.GestureResultCallback() {
+            override fun onCompleted(g: GestureDescription?) { play(steps, i + 1, s, done) }
+            override fun onCancelled(g: GestureDescription?) { done(false) }
+        })
+        if (!ok) done(false)
+    }
+
+    // ---------------- drag: pointer bergerak langsung, gesture drag dijalankan saat dilepas
+    fun dragStart() { startX = px; startY = py }
+    fun dragPump() {}
+    fun dragCancel() {}
+
+    fun dragEnd() {
+        if (playing) return
+        playing = true
+        playSteps(listOf(
+            Step(startX, startY, startX, startY, 350),   // tahan dulu (long-press)
+            Step(startX, startY, px, py, 300),           // lalu seret
+            Step(px, py, px, py, 100)                    // tahan sebentar sebelum angkat jari
+        )) { playing = false }
+    }
+
+    // ---------------- scroll. dy > 0 = isi bergulir ke bawah (jari mengusap ke atas)
     private fun scrollMode() = getSharedPreferences("kb", MODE_PRIVATE).getString("scrollmode", "gesture")
 
     fun scrollBy(dx: Float, dy: Float) {
-        if (Build.VERSION.SDK_INT < 26 || scrollMode() == "action") { scrollAction(dx, dy); return }
-        val m = 36 * resources.displayMetrics.density
-        val left = m; val right = sw - m; val top = m; val bot = maxOf(top + 1f, visibleH() - m)
-        var st = scroller
-        if (st == null) {
-            sFx = (if (shown) px else sw / 2f).coerceIn(left, right)
-            sFy = (if (shown) py else visibleH() / 2f).coerceIn(top, bot)
-            st = Stroker(sFx, sFy)
-            scroller = st
-        }
-        var nx = sFx - dx
-        var ny = sFy - dy
-        if (nx < left || nx > right || ny < top || ny > bot) {
-            // mentok tepi layar: angkat jari, mulai lagi dari sisi seberang
-            st.end()
-            if (nx < left) sFx = left + (right - left) * 0.8f else if (nx > right) sFx = left + (right - left) * 0.2f
-            if (ny < top) sFy = top + (bot - top) * 0.8f else if (ny > bot) sFy = top + (bot - top) * 0.2f
-            st = Stroker(sFx, sFy)
-            scroller = st
-            nx = sFx - dx; ny = sFy - dy
-        }
-        sFx = nx.coerceIn(left, right); sFy = ny.coerceIn(top, bot)
-        st.moveTo(sFx, sFy)
+        if (scrollMode() == "action") { scrollAction(dx, dy); return }
+        accAx += dx; accAy += dy // dijalankan sebagai satu usapan saat slider dilepas
     }
 
     fun scrollEnd() {
-        scroller?.end(); scroller = null
-        accAx = 0f; accAy = 0f
+        if (scrollMode() == "action") { accAx = 0f; accAy = 0f; return }
+        flushScroll()
+    }
+
+    fun scrollCancel() { accAx = 0f; accAy = 0f }
+
+    private fun clampSafe(v: Float, lo: Float, hi: Float) = if (lo > hi) (lo + hi) / 2 else v.coerceIn(lo, hi)
+
+    private fun flushScroll() {
+        if (playing) return
+        val d = resources.displayMetrics.density
+        val vh = visibleH()
+        if (abs(accAx) < 24 * d && abs(accAy) < 24 * d) { accAx = 0f; accAy = 0f; return }
+        val cx = accAx.coerceIn(-sw * 0.7f, sw * 0.7f)
+        val cy = accAy.coerceIn(-vh * 0.7f, vh * 0.7f)
+        accAx -= cx; accAy -= cy
+        val m = 12 * d
+        val bx = if (shown) px else sw / 2f
+        val by = if (shown) py else vh / 2f
+        // jari bergerak berlawanan arah isi; awal & akhir usapan harus tetap di dalam area app
+        val x0 = clampSafe(bx + cx / 2, m + maxOf(cx, 0f), sw - m + minOf(cx, 0f))
+        val y0 = clampSafe(by + cy / 2, m + maxOf(cy, 0f), vh - m + minOf(cy, 0f))
+        val x1 = x0 - cx
+        val y1 = y0 - cy
+        val dur = (200 + maxOf(abs(cx), abs(cy)) * 0.35f).toLong()
+        playing = true
+        playSteps(listOf(Step(x0, y0, x1, y1, dur), Step(x1, y1, x1, y1, 120))) { ok ->
+            playing = false
+            if (ok) flushScroll() else { accAx = 0f; accAy = 0f }
+        }
     }
 
     // mode aksi: perintah scroll langsung ke komponen yang bisa di-scroll di titik target

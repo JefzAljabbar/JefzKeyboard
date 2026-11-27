@@ -64,8 +64,8 @@ class PadPanel(
     override fun onVisibilityChanged(cv: View, vis: Int) {
         super.onVisibilityChanged(cv, vis)
         if (vis != VISIBLE) {
-            PadService.instance?.scrollEnd()
-            if (dragging) PadService.instance?.dragEnd()
+            PadService.instance?.scrollCancel()
+            if (dragging) PadService.instance?.dragCancel()
             dragging = false; lHeld = false; ptrs.clear(); padPointers = 0; vOff = 0f; hOff = 0f
         }
     }
@@ -88,8 +88,8 @@ class PadPanel(
         c.drawRoundRect(hs.centerX() - 16 * d + hOff, hs.top + 4 * d, hs.centerX() + 16 * d + hOff, hs.bottom - 4 * d, 8 * d, 8 * d, paint)
         val hint = when {
             prefs.getString("padmode", "pointer") == "pointer" && s == null -> "Aktifkan Layanan Aksesibilitas · sementara mode kursor teks"
-            s != null -> "Geser: pointer · ketuk: klik · 2 jari: klik kanan"
-            else -> "Geser: kursor teks · tahan PILIH: seleksi · slider: " + (if (PadService.instance != null) "scroll halaman" else "pindah kursor")
+            s != null -> "Geser: pointer · ketuk: klik · 2 jari: klik kanan · slider: geser lalu lepas"
+            else -> "Geser: kursor teks · tahan PILIH: seleksi · slider: " + (if (PadService.instance != null) "geser lalu lepas = scroll" else "pindah kursor")
         }
         txt(hint, pad, 11f, 0xFF8A90A5.toInt())
     }
@@ -137,7 +137,6 @@ class PadPanel(
                     hd.postDelayed(run, 250)
                 }
             }
-            4 -> { buzz(); if (s != null) s.rightClick() else onPaste() }
             5 -> onBack()
         }
     }
@@ -211,6 +210,7 @@ class PadPanel(
                 lRun = null
                 if (dragging) { dragging = false; s?.dragEnd() } else if (s != null) { buzz(); s.click() }
             }
+            4 -> { buzz(); if (s != null) s.rightClick() else onPaste() }
             1 -> { vOff = 0f; PadService.instance?.scrollEnd() }
             2 -> { hOff = 0f; PadService.instance?.scrollEnd() }
         }
