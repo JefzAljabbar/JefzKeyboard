@@ -4,6 +4,10 @@
             <intent-filter><action android:name="android.view.InputMethod" /></intent-filter>
             <meta-data android:name="android.view.im" android:resource="@xml/method" />
         </service>
+        <service android:name=".PadService" android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE" android:exported="true">
+            <intent-filter><action android:name="android.accessibilityservice.AccessibilityService" /></intent-filter>
+            <meta-data android:name="android.accessibilityservice" android:resource="@xml/pad_service" />
+        </service>
         <activity android:name=".SettingsActivity" android:exported="true" android:label="JefzKeyboard">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

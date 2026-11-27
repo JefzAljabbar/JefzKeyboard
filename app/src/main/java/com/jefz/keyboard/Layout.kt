@@ -65,7 +65,7 @@ object Layouts {
             (1..6).map { k("F$it", "F$it") } to 0f,
             (7..12).map { k("F$it", "F$it") } to 0f,
             listOf(k("←", "DPAD_LEFT"), k("↑", "DPAD_UP"), k("↓", "DPAD_DOWN"), k("→", "DPAD_RIGHT"), k("Home", "MOVE_HOME"), k("End", "MOVE_END")) to 0f,
-            listOf(k("PgUp", "PAGE_UP"), k("PgDn", "PAGE_DOWN"), k("Ins", "INSERT"), k("Del", "FORWARD_DEL"), a("⌫", "DEL"), a("ABC", "LAYER:abc")) to 0f)))
+            listOf(k("PgUp", "PAGE_UP"), k("PgDn", "PAGE_DOWN"), k("Ins", "INSERT"), k("Del", "FORWARD_DEL"), a("⌫", "DEL"), a("🖱", "TOUCHPAD"), a("ABC", "LAYER:abc")) to 0f)))
         return listOf(abc, sym, fn)
     }
 
@@ -134,7 +134,7 @@ object Catalog {
                 t("Play", "code", "MEDIA_PLAY_PAUSE"), t("Next", "code", "MEDIA_NEXT"), t("Prev", "code", "MEDIA_PREVIOUS")),
             "HP: Aksi" to listOf(
                 t("⇧", "act", "SHIFT"), t("⌫", "act", "DEL"), t("⏎", "act", "ENTER"), t("space", "act", "SPACE"),
-                t("😀", "act", "EMOJI"), t("Tutup", "act", "HIDE"), t("Ganti", "act", "SWITCH"), t("Kirim", "act", "ACTION"), t("⚙", "act", "SETTINGS")),
+                t("😀", "act", "EMOJI"), t("Tutup", "act", "HIDE"), t("Ganti", "act", "SWITCH"), t("Kirim", "act", "ACTION"), t("Pad", "act", "TOUCHPAD"), t("⚙", "act", "SETTINGS")),
             "Kustom (teks/snippet)" to listOf(t("?", "char", ""))
         )
     }

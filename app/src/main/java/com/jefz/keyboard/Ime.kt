@@ -15,6 +15,7 @@ import android.widget.FrameLayout
 class Ime : InputMethodService() {
     private lateinit var v: KeyboardView
     private lateinit var emoji: EmojiView
+    private lateinit var pad: PadPanel
     private var layers: List<Layer> = emptyList()
     private var shift = 0 // 0 off, 1 sekali, 2 caps
     private val mods = HashMap<String, Int>() // 0 off, 1 sekali, 2 lock
@@ -36,9 +37,12 @@ class Ime : InputMethodService() {
             currentInputConnection?.let { ic -> send(ic, KeyEvent.KEYCODE_DEL) }
         })
         emoji.visibility = View.GONE
+        pad = PadPanel(this, prefs, { showKb() }, { h, vv, sel -> nav(h, vv, sel) }, { currentInputConnection?.performContextMenuAction(android.R.id.paste) })
+        pad.visibility = View.GONE
         return FrameLayout(this).apply {
             addView(v, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT))
             addView(emoji, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, (270 * d).toInt()))
+            addView(pad, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, (270 * d).toInt()))
         }
     }
 
@@ -56,8 +60,20 @@ class Ime : InputMethodService() {
         v.invalidate()
     }
 
-    private fun showKb() { emoji.visibility = View.GONE; v.visibility = View.VISIBLE }
+    private fun showKb() { emoji.visibility = View.GONE; pad.visibility = View.GONE; v.visibility = View.VISIBLE; PadService.instance?.hidePointer() }
     private fun showEmoji() { emoji.refresh(); v.visibility = View.GONE; emoji.visibility = View.VISIBLE }
+    private fun showPad() {
+        val h = maxOf(v.height, (240 * resources.displayMetrics.density).toInt())
+        pad.layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, h)
+        v.visibility = View.GONE; emoji.visibility = View.GONE; pad.visibility = View.VISIBLE
+        PadService.instance?.let { it.bottom = h + it.navBarHeight(); it.showPointer() }
+    }
+
+    override fun onWindowHidden() {
+        super.onWindowHidden()
+        PadService.instance?.hidePointer()
+    }
+
     private fun commit(s: String) { currentInputConnection?.commitText(s, 1) }
     private fun autocap() = prefs.getBoolean("autocap", true)
 
@@ -103,6 +119,7 @@ class Ime : InputMethodService() {
                 consume(); autoCap(ic)
             }
             a == "ACTION" -> action(ic)
+            a == "TOUCHPAD" -> showPad()
             a == "EMOJI" -> showEmoji()
             a == "HIDE" -> requestHideSelf(0)
             a == "SWITCH" -> (getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager).showInputMethodPicker()
@@ -131,19 +148,25 @@ class Ime : InputMethodService() {
     }
 
     // geser kursor hanya di dalam teks; tidak pernah memindah fokus keluar kolom
-    private fun moveCursor(dir: Int) {
+    private fun moveCursor(dir: Int, select: Boolean = shift > 0) {
         val ic = currentInputConnection ?: return
         val et = ic.getExtractedText(ExtractedTextRequest().apply { hintMaxChars = 4000 }, 0)
         val t = et?.text
         if (et != null && t != null) {
             val o = et.startOffset
             val pos = (et.selectionEnd + dir).coerceIn(0, t.length)
-            if (shift > 0) ic.setSelection(et.selectionStart + o, pos + o) else ic.setSelection(pos + o, pos + o)
+            if (select) ic.setSelection(et.selectionStart + o, pos + o) else ic.setSelection(pos + o, pos + o)
             return
         }
         if (dir < 0 && ic.getTextBeforeCursor(1, 0).isNullOrEmpty()) return
         if (dir > 0 && ic.getTextAfterCursor(1, 0).isNullOrEmpty()) return
         send(ic, if (dir > 0) KeyEvent.KEYCODE_DPAD_RIGHT else KeyEvent.KEYCODE_DPAD_LEFT)
+    }
+
+    private fun nav(h: Int, vv: Int, sel: Boolean) {
+        val ic = currentInputConnection ?: return
+        if (h != 0) moveCursor(h, sel)
+        if (vv != 0) send(ic, if (vv > 0) KeyEvent.KEYCODE_DPAD_DOWN else KeyEvent.KEYCODE_DPAD_UP, if (sel) SHF else meta())
     }
 
     private fun autoCap(ic: InputConnection) {
