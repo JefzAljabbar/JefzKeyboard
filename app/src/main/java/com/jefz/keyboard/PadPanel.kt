@@ -88,7 +88,7 @@ class PadPanel(
         val hint = when {
             prefs.getString("padmode", "pointer") == "pointer" && s == null -> "Aktifkan Layanan Aksesibilitas · sementara mode kursor teks"
             s != null -> "Geser: pointer · ketuk: klik · 2 jari: klik kanan"
-            else -> "Geser: kursor teks · tahan PILIH: seleksi"
+            else -> "Geser: kursor teks · tahan PILIH: seleksi · slider: " + (if (PadService.instance != null) "scroll halaman" else "pindah kursor")
         }
         txt(hint, pad, 11f, 0xFF8A90A5.toInt())
     }
@@ -167,7 +167,8 @@ class PadPanel(
             1 -> {
                 val lim = vs.height() / 2 - 16 * d
                 vOff = (vOff + dy).coerceIn(-lim, lim)
-                if (s != null) s.scrollBy(0f, dy * scrollK()) else {
+                val ss = PadService.instance
+                if (ss != null) ss.scrollBy(0f, dy * scrollK()) else {
                     p.ay += dy
                     val st = 22 * d
                     while (p.ay >= st) { p.ay -= st; onNav(0, 1, false) }
@@ -177,7 +178,8 @@ class PadPanel(
             2 -> {
                 val lim = hs.width() / 2 - 16 * d
                 hOff = (hOff + dx).coerceIn(-lim, lim)
-                if (s != null) s.scrollBy(dx * scrollK(), 0f) else {
+                val ss = PadService.instance
+                if (ss != null) ss.scrollBy(dx * scrollK(), 0f) else {
                     p.ax += dx
                     val st = 22 * d
                     while (p.ax >= st) { p.ax -= st; onNav(1, 0, false) }

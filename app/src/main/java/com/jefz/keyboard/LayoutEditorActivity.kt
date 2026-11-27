@@ -29,6 +29,7 @@ import kotlin.math.abs
 
 class EditorView(ctx: Context, private val onEdit: (Key) -> Unit) : KeyboardView(ctx) {
     var snap = 2 // 0 bebas, 1 kasar, 2 sedang, 3 halus
+    var autofit = 1 // 0 mati, 1 proporsional, 2 rata
     private val stepX = floatArrayOf(0f, 0.05f, 0.025f, 0.0125f)
     private val stepY = floatArrayOf(0f, 0.5f, 0.25f, 0.125f)
     private var sel: Key? = null
@@ -71,7 +72,19 @@ class EditorView(ctx: Context, private val onEdit: (Key) -> Unit) : KeyboardView
                 k.y = ny.coerceIn(0f, maxOf(0f, l.rows - k.h))
                 build(); invalidate()
             }
-            MotionEvent.ACTION_UP -> { if (!moved) sel?.let { onEdit(it) }; invalidate() }
+            MotionEvent.ACTION_UP -> {
+                if (!moved) sel?.let { onEdit(it) }
+                else sel?.let { k ->
+                    if (autofit > 0 && Math.abs(k.h - 1f) < 0.01f) {
+                        val to = Math.round(k.y).coerceIn(0, l.rows - 1)
+                        fitRow(l, Math.round(oy).coerceIn(0, l.rows - 1), autofit)
+                        k.y = to.toFloat()
+                        fitRow(l, to, autofit)
+                        build()
+                    }
+                }
+                invalidate()
+            }
         }
         return true
     }
@@ -84,6 +97,7 @@ class LayoutEditorActivity : Activity() {
     private lateinit var ev: EditorView
     private lateinit var layerBtn: Button
     private lateinit var snapBtn: Button
+    private lateinit var autoBtn: Button
 
     override fun onCreate(b: Bundle?) {
         super.onCreate(b)
@@ -91,6 +105,7 @@ class LayoutEditorActivity : Activity() {
         layers = Layouts.load(prefs).toMutableList()
         val d = resources.displayMetrics.density
         ev = EditorView(this) { editKey(it) }
+        ev.autofit = prefs.getInt("autofit", 1)
 
         fun btn(t: String, f: () -> Unit) = Button(this).apply {
             text = t; isAllCaps = false; setOnClickListener { f() }
@@ -104,13 +119,18 @@ class LayoutEditorActivity : Activity() {
             snapBtn.text = snapName(ev.snap)
             ev.invalidate()
         }
+        autoBtn = btn(autoName(ev.autofit)) {
+            ev.autofit = (ev.autofit + 1) % 3
+            prefs.edit().putInt("autofit", ev.autofit).apply()
+            autoBtn.text = autoName(ev.autofit)
+        }
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(0, (28 * d).toInt(), 0, 0)
             setBackgroundColor(0xFF121212.toInt())
             addView(bar(layerBtn, snapBtn, btn("+ Tombol") { addKey() }, btn("+ Tambah") { edgeDialog(true) }, btn("− Hapus") { edgeDialog(false) }))
             addView(bar(btn("Layer baru") { newLayer() }, btn("Hapus layer") { delLayer() },
-                btn("Ekspor") { exportLayout() }, btn("Impor") { importLayout() }, btn("Reset") { reset() }, btn("Selesai") { finish() }))
+                btn("Ekspor") { exportLayout() }, btn("Impor") { importLayout() }, btn("Reset") { reset() }, autoBtn, btn("Rapikan") { fitAll(layers[cur], if (ev.autofit == 2) 2 else 1); ev.showLayer(layers[cur]) }, btn("Selesai") { finish() }))
             addView(TextView(this@LayoutEditorActivity).apply {
                 text = "Seret tombol untuk memindah · ketuk untuk edit · otomatis tersimpan"
                 textSize = 12f; setTextColor(0xFF9AA0B5.toInt()); setPadding((12 * d).toInt(), (6 * d).toInt(), 0, (6 * d).toInt())
@@ -130,6 +150,8 @@ class LayoutEditorActivity : Activity() {
         ev.showLayer(layers[cur])
         layerBtn.text = "Layer: ${layers[cur].name}"
     }
+
+    private fun autoName(i: Int) = arrayOf("Auto: mati", "Auto: proporsional", "Auto: rata")[i]
 
     private fun snapName(i: Int) = arrayOf("Bebas", "Snap: kasar", "Snap: sedang", "Snap: halus")[i]
 
@@ -223,7 +245,7 @@ class LayoutEditorActivity : Activity() {
     private fun editKey(k: Key) {
         val d = resources.displayMetrics.density
         val l = layers[cur]
-        val orig = k.copy()
+        val backup = l.keys.map { it.copy() }
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding((20 * d).toInt(), (8 * d).toInt(), (20 * d).toInt(), 0)
@@ -231,6 +253,7 @@ class LayoutEditorActivity : Activity() {
         fun live() {
             k.x = k.x.coerceIn(0f, maxOf(0f, 1f - k.w))
             k.y = k.y.coerceIn(0f, maxOf(0f, l.rows - k.h))
+            if (ev.autofit > 0 && Math.abs(k.h - 1f) < 0.01f) fitRow(l, Math.round(k.y).coerceIn(0, l.rows - 1), ev.autofit)
             ev.showLayer(l)
         }
         fun slider(name: String, min: Float, max: Float, step: Float, v: Float, set: (Float) -> Unit) {
@@ -270,7 +293,10 @@ class LayoutEditorActivity : Activity() {
                 "act=SHIFT/DEL/ENTER/SPACE/EMOJI/HIDE/SWITCH/SETTINGS/ACTION/LAYER:nama"
             textSize = 11f
         })
-        fun revert() { k.x = orig.x; k.y = orig.y; k.w = orig.w; k.h = orig.h; ev.showLayer(l) }
+        fun revert() {
+            l.keys.forEachIndexed { i, key -> val b = backup[i]; key.x = b.x; key.y = b.y; key.w = b.w; key.h = b.h }
+            ev.showLayer(l)
+        }
         val dlg = AlertDialog.Builder(this).setTitle("Edit tombol")
             .setView(ScrollView(this).apply { addView(box) })
             .setPositiveButton("OK") { _, _ ->
@@ -278,7 +304,12 @@ class LayoutEditorActivity : Activity() {
                 k.value = fv.text.toString(); k.lp = fp.text.toString().trim()
                 live()
             }
-            .setNeutralButton("Hapus") { _, _ -> l.keys.removeAll { it === k }; ev.showLayer(l) }
+            .setNeutralButton("Hapus") { _, _ ->
+                val r = Math.round(k.y).coerceIn(0, l.rows - 1)
+                l.keys.removeAll { it === k }
+                if (ev.autofit > 0) fitRow(l, r, ev.autofit)
+                ev.showLayer(l)
+            }
             .setNegativeButton("Batal") { _, _ -> revert() }
             .create()
         dlg.setOnCancelListener { revert() }

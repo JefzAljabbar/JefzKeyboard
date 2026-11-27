@@ -66,7 +66,10 @@ class Ime : InputMethodService() {
         val h = maxOf(v.height, (240 * resources.displayMetrics.density).toInt())
         pad.layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, h)
         v.visibility = View.GONE; emoji.visibility = View.GONE; pad.visibility = View.VISIBLE
-        PadService.instance?.let { it.bottom = h + it.navBarHeight(); it.showPointer() }
+        PadService.instance?.let {
+            it.bottom = h + it.navBarHeight()
+            if (prefs.getString("padmode", "pointer") == "pointer") it.showPointer() else it.hidePointer()
+        }
     }
 
     override fun onWindowHidden() {

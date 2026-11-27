@@ -38,6 +38,9 @@ class PadService : AccessibilityService() {
     private var cursor: View? = null
     private var lp: WindowManager.LayoutParams? = null
     private var shown = false
+    private var offX = 0
+    private var offY = 0
+    private var tip = 0
     private var px = 0f
     private var py = 0f
     private var sw = 1080
@@ -62,13 +65,17 @@ class PadService : AccessibilityService() {
         wm = getSystemService(WINDOW_SERVICE) as WindowManager
         val d = resources.displayMetrics.density
         cursor = PointerView(this)
+        tip = (1 * d).toInt()
         lp = WindowManager.LayoutParams(
             (18 * d).toInt(), (30 * d).toInt(),
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
-                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT
-        ).apply { gravity = Gravity.TOP or Gravity.START }
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            if (Build.VERSION.SDK_INT >= 28) layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+        }
         refreshScreen()
         px = sw / 2f; py = sh / 3f
     }
@@ -99,8 +106,21 @@ class PadService : AccessibilityService() {
     fun showPointer() {
         refreshScreen()
         if (!shown) {
-            try { wm.addView(cursor, lp); shown = true } catch (e: Exception) { }
+            val p = lp ?: return
+            p.x = 0; p.y = 0
+            try { wm.addView(cursor, p); shown = true } catch (e: Exception) { return }
+            cursor?.post { calibrate() }
+            return
         }
+        place()
+    }
+
+    // ukur posisi jendela overlay yang sebenarnya di layar (status bar/notch) supaya titik pointer = titik klik
+    private fun calibrate() {
+        val v = cursor ?: return
+        val loc = IntArray(2)
+        v.getLocationOnScreen(loc)
+        offX = loc[0]; offY = loc[1]
         place()
     }
 
@@ -110,7 +130,7 @@ class PadService : AccessibilityService() {
 
     private fun place() {
         val p = lp ?: return
-        p.x = px.toInt(); p.y = py.toInt()
+        p.x = px.toInt() - offX - tip; p.y = py.toInt() - offY - tip
         if (shown) try { wm.updateViewLayout(cursor, p) } catch (e: Exception) { }
     }
 
@@ -185,8 +205,11 @@ class PadService : AccessibilityService() {
         val cx = accX.coerceIn(-sw * 0.4f, sw * 0.4f)
         val cy = accY.coerceIn(-sh * 0.4f, sh * 0.4f)
         accX -= cx; accY -= cy
-        val mx = px.coerceIn(abs(cx) / 2, sw - 1f - abs(cx) / 2)
-        val my = py.coerceIn(abs(cy) / 2, sh - 1f - abs(cy) / 2)
+        // target scroll: titik pointer; tanpa pointer (mode teks) = tengah area app di atas keyboard
+        val bx = if (shown) px else sw / 2f
+        val by = if (shown) py else maxOf(1f, (sh - bottom) / 2f)
+        val mx = bx.coerceIn(abs(cx) / 2, sw - 1f - abs(cx) / 2)
+        val my = by.coerceIn(abs(cy) / 2, sh - 1f - abs(cy) / 2)
         val path = Path().apply { moveTo(mx + cx / 2, my + cy / 2); lineTo(mx - cx / 2, my - cy / 2) }
         val dur = (150 + maxOf(abs(cx), abs(cy)) * 0.5f).toLong()
         scrollBusy = true

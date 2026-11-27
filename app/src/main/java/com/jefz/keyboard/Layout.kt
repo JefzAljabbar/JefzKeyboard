@@ -139,3 +139,20 @@ object Catalog {
         )
     }
 }
+
+// Auto-fit: susun ulang tombol satu baris agar memenuhi lebar penuh tanpa celah/tumpang tindih.
+// mode 1 = proporsional (lebar relatif dipertahankan), mode 2 = rata (semua sama lebar)
+fun fitRow(l: Layer, row: Int, mode: Int) {
+    val ks = l.keys.filter { Math.round(it.y) == row && Math.abs(it.h - 1f) < 0.01f }.sortedBy { it.x + it.w / 2 }
+    if (ks.isEmpty()) return
+    val tot = ks.sumOf { it.w.toDouble() }.toFloat()
+    if (mode != 2 && tot <= 0f) return
+    var x = 0f
+    ks.forEach { k ->
+        val w = if (mode == 2) 1f / ks.size else k.w / tot
+        k.x = x; k.w = w; k.y = row.toFloat()
+        x += w
+    }
+}
+
+fun fitAll(l: Layer, mode: Int) { for (r in 0 until l.rows) fitRow(l, r, mode) }
