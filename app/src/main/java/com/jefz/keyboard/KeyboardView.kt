@@ -17,6 +17,8 @@ open class KeyboardView(ctx: Context) : View(ctx) {
     var active: (Key) -> Boolean = { false }
     var shifted: () -> Boolean = { false }
     var haptic = true
+    var heightScale = 1f
+    var fontScale = 1f
     var onCursor: (Int) -> Unit = {}
 
     protected val d = resources.displayMetrics.density
@@ -33,7 +35,7 @@ open class KeyboardView(ctx: Context) : View(ctx) {
     private fun isSpace(k: Key) = k.type == "act" && k.value == "SPACE" && k.lp.isEmpty()
 
     protected open fun rowH(): Float =
-        (if (resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) 40 else 52) * d
+        (if (resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) 40 else 52) * d * heightScale
 
     fun showLayer(l: Layer?) { layer = l; requestLayout(); build(); invalidate() }
 
@@ -66,12 +68,12 @@ open class KeyboardView(ctx: Context) : View(ctx) {
             }
             c.drawRoundRect(rc, 8 * d, 8 * d, paint)
             if (k.lp.startsWith("char:")) {
-                paint.textSize = 10 * d
+                paint.textSize = 10 * d * fontScale
                 paint.color = 0xFF9AA0B5.toInt()
                 c.drawText(k.lp.substring(5), rc.right - 9 * d, rc.top + 13 * d, paint)
             }
             paint.color = 0xFFFFFFFF.toInt()
-            paint.textSize = (if (k.label.length > 3) 13 else 18) * d
+            paint.textSize = (if (k.label.length > 3) 13 else 18) * d * fontScale
             val t = if (up && k.type == "char" && k.label.length == 1) k.label.uppercase() else k.label
             c.drawText(t, rc.centerX(), rc.centerY() - (paint.descent() + paint.ascent()) / 2, paint)
         }

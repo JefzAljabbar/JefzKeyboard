@@ -7,6 +7,7 @@ import android.text.InputType
 import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.ExtractedTextRequest
 import android.view.inputmethod.InputConnection
 import android.view.inputmethod.InputMethodManager
 import android.widget.FrameLayout
@@ -30,9 +31,7 @@ class Ime : InputMethodService() {
         v.onKey = { handle(it) }
         v.active = { (it.type == "mod" && (mods[it.value] ?: 0) > 0) || (it.type == "act" && it.value == "SHIFT" && shift > 0) }
         v.shifted = { shift > 0 }
-        v.onCursor = { dir ->
-            currentInputConnection?.let { ic -> send(ic, if (dir > 0) KeyEvent.KEYCODE_DPAD_RIGHT else KeyEvent.KEYCODE_DPAD_LEFT) }
-        }
+        v.onCursor = { dir -> moveCursor(dir) }
         emoji = EmojiView(this, prefs, { commit(it) }, { showKb() }, {
             currentInputConnection?.let { ic -> send(ic, KeyEvent.KEYCODE_DEL) }
         })
@@ -47,6 +46,8 @@ class Ime : InputMethodService() {
         super.onStartInputView(info, restarting)
         layers = Layouts.load(prefs)
         v.haptic = prefs.getBoolean("haptic", true)
+        v.heightScale = prefs.getInt("hpct", 100) / 100f
+        v.fontScale = prefs.getInt("fpct", 100) / 100f
         v.showLayer(layers.firstOrNull { it.name == "abc" } ?: layers.firstOrNull())
         showKb()
         mods.clear(); shift = 0
@@ -127,6 +128,22 @@ class Ime : InputMethodService() {
         if (o and EditorInfo.IME_FLAG_NO_ENTER_ACTION == 0 && act != EditorInfo.IME_ACTION_NONE && act != EditorInfo.IME_ACTION_UNSPECIFIED)
             ic.performEditorAction(act)
         else send(ic, KeyEvent.KEYCODE_ENTER)
+    }
+
+    // geser kursor hanya di dalam teks; tidak pernah memindah fokus keluar kolom
+    private fun moveCursor(dir: Int) {
+        val ic = currentInputConnection ?: return
+        val et = ic.getExtractedText(ExtractedTextRequest().apply { hintMaxChars = 4000 }, 0)
+        val t = et?.text
+        if (et != null && t != null) {
+            val o = et.startOffset
+            val pos = (et.selectionEnd + dir).coerceIn(0, t.length)
+            if (shift > 0) ic.setSelection(et.selectionStart + o, pos + o) else ic.setSelection(pos + o, pos + o)
+            return
+        }
+        if (dir < 0 && ic.getTextBeforeCursor(1, 0).isNullOrEmpty()) return
+        if (dir > 0 && ic.getTextAfterCursor(1, 0).isNullOrEmpty()) return
+        send(ic, if (dir > 0) KeyEvent.KEYCODE_DPAD_RIGHT else KeyEvent.KEYCODE_DPAD_LEFT)
     }
 
     private fun autoCap(ic: InputConnection) {

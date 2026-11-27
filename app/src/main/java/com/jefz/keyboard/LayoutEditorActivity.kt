@@ -10,7 +10,11 @@ import android.graphics.Canvas
 import android.graphics.Paint
 import android.os.Bundle
 import android.text.InputType
+import android.view.Gravity
 import android.view.MotionEvent
+import android.view.WindowManager
+import android.widget.ScrollView
+import android.widget.SeekBar
 import android.view.ViewGroup
 import android.widget.ArrayAdapter
 import android.widget.Button
@@ -24,7 +28,9 @@ import java.util.Locale
 import kotlin.math.abs
 
 class EditorView(ctx: Context, private val onEdit: (Key) -> Unit) : KeyboardView(ctx) {
-    var snap = true
+    var snap = 2 // 0 bebas, 1 kasar, 2 sedang, 3 halus
+    private val stepX = floatArrayOf(0f, 0.05f, 0.025f, 0.0125f)
+    private val stepY = floatArrayOf(0f, 0.5f, 0.25f, 0.125f)
     private var sel: Key? = null
     private var sx = 0f; private var sy = 0f; private var ox = 0f; private var oy = 0f
     private var moved = false
@@ -38,7 +44,7 @@ class EditorView(ctx: Context, private val onEdit: (Key) -> Unit) : KeyboardView
     override fun onDraw(c: Canvas) {
         super.onDraw(c)
         val l = layer ?: return
-        if (snap) {
+        if (snap > 0) {
             for (i in 1 until 20) c.drawLine(i * width / 20f, 0f, i * width / 20f, height.toFloat(), grid)
             var y = 0.5f
             while (y < l.rows) { c.drawLine(0f, y * rowH(), width.toFloat(), y * rowH(), grid); y += 0.5f }
@@ -56,11 +62,11 @@ class EditorView(ctx: Context, private val onEdit: (Key) -> Unit) : KeyboardView
             }
             MotionEvent.ACTION_MOVE -> sel?.let { k ->
                 val dx = e.x - sx; val dy = e.y - sy
-                if (!moved && abs(dx) + abs(dy) < 8 * d) return true
+                if (!moved && abs(dx) + abs(dy) < 3 * d) return true
                 moved = true
                 var nx = ox + dx / width
                 var ny = oy + dy / rowH()
-                if (snap) { nx = Math.round(nx * 20) / 20f; ny = Math.round(ny * 2) / 2f }
+                if (snap > 0) { nx = Math.round(nx / stepX[snap]) * stepX[snap]; ny = Math.round(ny / stepY[snap]) * stepY[snap] }
                 k.x = nx.coerceIn(0f, maxOf(0f, 1f - k.w))
                 k.y = ny.coerceIn(0f, maxOf(0f, l.rows - k.h))
                 build(); invalidate()
@@ -93,9 +99,9 @@ class LayoutEditorActivity : Activity() {
             addView(LinearLayout(this@LayoutEditorActivity).apply { bs.forEach { addView(it) } })
         }
         layerBtn = btn("Layer") { pickLayer() }
-        snapBtn = btn("Snap: ON") {
-            ev.snap = !ev.snap
-            snapBtn.text = if (ev.snap) "Snap: ON" else "Bebas"
+        snapBtn = btn(snapName(ev.snap)) {
+            ev.snap = (ev.snap + 1) % 4
+            snapBtn.text = snapName(ev.snap)
             ev.invalidate()
         }
         val root = LinearLayout(this).apply {
@@ -124,6 +130,8 @@ class LayoutEditorActivity : Activity() {
         ev.showLayer(layers[cur])
         layerBtn.text = "Layer: ${layers[cur].name}"
     }
+
+    private fun snapName(i: Int) = arrayOf("Bebas", "Snap: kasar", "Snap: sedang", "Snap: halus")[i]
 
     private fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_SHORT).show()
 
@@ -214,15 +222,40 @@ class LayoutEditorActivity : Activity() {
 
     private fun editKey(k: Key) {
         val d = resources.displayMetrics.density
+        val l = layers[cur]
+        val orig = k.copy()
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding((20 * d).toInt(), (8 * d).toInt(), (20 * d).toInt(), 0)
         }
-        fun field(h: String, v: String, num: Boolean = false): EditText = EditText(this).apply {
-            hint = h; setText(v)
-            if (num) inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
-            box.addView(this)
+        fun live() {
+            k.x = k.x.coerceIn(0f, maxOf(0f, 1f - k.w))
+            k.y = k.y.coerceIn(0f, maxOf(0f, l.rows - k.h))
+            ev.showLayer(l)
         }
+        fun slider(name: String, min: Float, max: Float, step: Float, v: Float, set: (Float) -> Unit) {
+            val tv = TextView(this)
+            val sb = SeekBar(this)
+            sb.max = Math.round((max - min) / step)
+            sb.progress = Math.round((v - min) / step).coerceIn(0, sb.max)
+            tv.text = "$name: ${f2(v)}"
+            sb.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(s: SeekBar?, p: Int, user: Boolean) {
+                    val nv = min + p * step
+                    tv.text = "$name: ${f2(nv)}"
+                    if (user) { set(nv); live() }
+                }
+                override fun onStartTrackingTouch(s: SeekBar?) {}
+                override fun onStopTrackingTouch(s: SeekBar?) {}
+            })
+            box.addView(tv); box.addView(sb)
+        }
+        slider("Lebar", 0.5f, 15f, 0.05f, k.w * 10) { k.w = it / 10f }
+        slider("Tinggi (baris)", 0.25f, 4f, 0.05f, k.h) { k.h = it }
+        slider("Posisi X", 0f, 9.5f, 0.05f, k.x * 10) { k.x = it / 10f }
+        slider("Posisi Y (baris)", 0f, maxOf(0.25f, l.rows - 0.25f), 0.05f, k.y) { k.y = it }
+
+        fun field(h: String, v: String): EditText = EditText(this).apply { hint = h; setText(v); box.addView(this) }
         val types = listOf("char", "code", "mod", "act", "combo")
         val fl = field("Label", k.label)
         val sp = Spinner(this).apply {
@@ -232,24 +265,28 @@ class LayoutEditorActivity : Activity() {
         }
         val fv = field("Nilai (teks / nama KEYCODE / aksi)", k.value)
         val fp = field("Tekan lama (tipe:nilai, mis. char:1)", k.lp)
-        val fw = field("Lebar (1 = satu tombol standar)", f2(k.w * 10), true)
-        val fh = field("Tinggi (baris)", f2(k.h), true)
         box.addView(TextView(this).apply {
             text = "char=teks · code=KEYCODE (DPAD_LEFT) · mod=CTRL/ALT/META · combo=CTRL+SHIFT+P · " +
-                "act=SHIFT/DEL/ENTER/SPACE/EMOJI/HIDE/SWITCH/SETTINGS/LAYER:nama"
+                "act=SHIFT/DEL/ENTER/SPACE/EMOJI/HIDE/SWITCH/SETTINGS/ACTION/LAYER:nama"
             textSize = 11f
         })
-        AlertDialog.Builder(this).setTitle("Edit tombol").setView(box)
+        fun revert() { k.x = orig.x; k.y = orig.y; k.w = orig.w; k.h = orig.h; ev.showLayer(l) }
+        val dlg = AlertDialog.Builder(this).setTitle("Edit tombol")
+            .setView(ScrollView(this).apply { addView(box) })
             .setPositiveButton("OK") { _, _ ->
                 k.label = fl.text.toString(); k.type = sp.selectedItem as String
                 k.value = fv.text.toString(); k.lp = fp.text.toString().trim()
-                fw.text.toString().replace(',', '.').toFloatOrNull()?.let { if (it > 0) k.w = (it / 10f).coerceAtMost(1f) }
-                fh.text.toString().replace(',', '.').toFloatOrNull()?.let { if (it > 0) k.h = it }
-                k.x = k.x.coerceIn(0f, maxOf(0f, 1f - k.w))
-                k.y = k.y.coerceIn(0f, maxOf(0f, layers[cur].rows - k.h))
-                ev.showLayer(layers[cur])
+                live()
             }
-            .setNeutralButton("Hapus") { _, _ -> layers[cur].keys.removeAll { it === k }; ev.showLayer(layers[cur]) }
-            .setNegativeButton("Batal", null).show()
+            .setNeutralButton("Hapus") { _, _ -> l.keys.removeAll { it === k }; ev.showLayer(l) }
+            .setNegativeButton("Batal") { _, _ -> revert() }
+            .create()
+        dlg.setOnCancelListener { revert() }
+        dlg.show()
+        dlg.window?.apply {
+            setGravity(Gravity.BOTTOM)
+            clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+            setLayout(ViewGroup.LayoutParams.MATCH_PARENT, (resources.displayMetrics.heightPixels * 0.45).toInt())
+        }
     }
 }
