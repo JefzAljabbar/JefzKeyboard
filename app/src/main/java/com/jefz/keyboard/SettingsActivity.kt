@@ -20,7 +20,7 @@ class SettingsActivity : Activity() {
             setPadding((16 * d).toInt(), (32 * d).toInt(), (16 * d).toInt(), (16 * d).toInt())
         }
         fun btn(t: String, f: () -> Unit) {
-            root.addView(Button(this).apply { text = t; setOnClickListener { f() } })
+            root.addView(Button(this).apply { text = t; isAllCaps = false; setOnClickListener { f() } })
         }
         fun sw(t: String, key: String) {
             root.addView(Switch(this).apply {
@@ -30,9 +30,9 @@ class SettingsActivity : Activity() {
         }
         btn("1. Aktifkan keyboard") { startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS)) }
         btn("2. Pilih keyboard") { (getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager).showInputMethodPicker() }
+        btn("Edit tata letak") { startActivity(Intent(this, LayoutEditorActivity::class.java)) }
         sw("Auto kapital setelah titik", "autocap")
         sw("Getar saat ketik", "haptic")
-        btn("Reset tata letak ke default") { p.edit().remove("layout").apply() }
         root.addView(EditText(this).apply { hint = "Tes ketik di sini" })
         setContentView(root)
     }

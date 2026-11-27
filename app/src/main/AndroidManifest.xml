@@ -1,5 +1,5 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <application android:label="JefzKeyboard" android:allowBackup="true">
+    <application android:label="JefzKeyboard" android:icon="@drawable/ic_launcher" android:allowBackup="true">
         <service android:name=".Ime" android:permission="android.permission.BIND_INPUT_METHOD" android:exported="true">
             <intent-filter><action android:name="android.view.InputMethod" /></intent-filter>
             <meta-data android:name="android.view.im" android:resource="@xml/method" />
@@ -10,5 +10,6 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <activity android:name=".LayoutEditorActivity" android:exported="false" android:label="Edit tata letak" />
     </application>
 </manifest>

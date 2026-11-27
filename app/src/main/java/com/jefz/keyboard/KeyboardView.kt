@@ -1,6 +1,7 @@
 package com.jefz.keyboard
 
 import android.content.Context
+import android.content.res.Configuration
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.RectF
@@ -10,50 +11,42 @@ import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 
-class KeyboardView(ctx: Context) : View(ctx) {
-    var layers: List<Layer> = emptyList()
-    var cur = 0
+open class KeyboardView(ctx: Context) : View(ctx) {
+    var layer: Layer? = null
     var onKey: (Key) -> Unit = {}
     var active: (Key) -> Boolean = { false }
     var shifted: () -> Boolean = { false }
     var haptic = true
 
-    private val d = resources.displayMetrics.density
-    private val rowH = 52 * d
-    private val gap = 3 * d
-    private val cells = ArrayList<Pair<RectF, Key>>()
+    protected val d = resources.displayMetrics.density
+    protected val gap = 3 * d
+    protected val cells = ArrayList<Pair<RectF, Key>>()
+    protected val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.CENTER }
     private val down = HashMap<Int, Key>()
-    private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.CENTER }
+    private val pend = HashMap<Int, Runnable>()
+    private val fired = HashSet<Int>()
     private val hd = Handler(Looper.getMainLooper())
     private var rep: Runnable? = null
 
-    fun setLayer(n: String) {
-        val i = layers.indexOfFirst { it.name == n }
-        if (i < 0) return
-        cur = i
-        requestLayout(); build(); invalidate()
-    }
+    protected open fun rowH(): Float =
+        (if (resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) 40 else 52) * d
+
+    fun setLayer(l: Layer?) { layer = l; requestLayout(); build(); invalidate() }
 
     override fun onMeasure(w: Int, h: Int) {
-        val rows = layers.getOrNull(cur)?.rows?.size ?: 4
-        setMeasuredDimension(MeasureSpec.getSize(w), (rows * rowH + gap).toInt())
+        setMeasuredDimension(MeasureSpec.getSize(w), ((layer?.rows ?: 4) * rowH()).toInt())
     }
 
     override fun onSizeChanged(w: Int, h: Int, ow: Int, oh: Int) { build() }
 
-    private fun build() {
+    protected fun build() {
         cells.clear()
-        val l = layers.getOrNull(cur) ?: return
+        val l = layer ?: return
         if (width == 0) return
-        l.rows.forEachIndexed { ri, r ->
-            val tot = r.sumOf { it.w.toDouble() }.toFloat()
-            var x = 0f
-            val top = ri * rowH + gap
-            r.forEach { k ->
-                val w = width * k.w / tot
-                cells.add(RectF(x + gap / 2, top, x + w - gap / 2, top + rowH - gap) to k)
-                x += w
-            }
+        val rh = rowH()
+        for (k in l.keys) {
+            cells.add(RectF(k.x * width + gap / 2, k.y * rh + gap / 2,
+                (k.x + k.w) * width - gap / 2, (k.y + k.h) * rh - gap / 2) to k)
         }
     }
 
@@ -68,6 +61,11 @@ class KeyboardView(ctx: Context) : View(ctx) {
                 else -> 0xFF2C2C2C.toInt()
             }
             c.drawRoundRect(rc, 8 * d, 8 * d, paint)
+            if (k.lp.startsWith("char:")) {
+                paint.textSize = 10 * d
+                paint.color = 0xFF9AA0B5.toInt()
+                c.drawText(k.lp.substring(5), rc.right - 9 * d, rc.top + 13 * d, paint)
+            }
             paint.color = 0xFFFFFFFF.toInt()
             paint.textSize = (if (k.label.length > 3) 13 else 18) * d
             val t = if (up && k.type == "char" && k.label.length == 1) k.label.uppercase() else k.label
@@ -75,28 +73,45 @@ class KeyboardView(ctx: Context) : View(ctx) {
         }
     }
 
-    private fun hit(x: Float, y: Float): Key? = cells.firstOrNull { it.first.contains(x, y) }?.second
-
     override fun onTouchEvent(e: MotionEvent): Boolean {
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
                 val i = e.actionIndex
-                val k = hit(e.getX(i), e.getY(i))
-                if (k != null) { down[e.getPointerId(i)] = k; press(k) }
+                val id = e.getPointerId(i)
+                val k = cells.lastOrNull { it.first.contains(e.getX(i), e.getY(i)) }?.second
+                if (k != null) { down[id] = k; press(id, k) }
                 invalidate()
             }
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP -> {
-                down.remove(e.getPointerId(e.actionIndex)); stopRep(); invalidate()
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP -> release(e.getPointerId(e.actionIndex))
+            MotionEvent.ACTION_CANCEL -> {
+                for (r in pend.values) hd.removeCallbacks(r)
+                pend.clear(); down.clear(); fired.clear(); stopRep(); invalidate()
             }
-            MotionEvent.ACTION_CANCEL -> { down.clear(); stopRep(); invalidate() }
         }
         return true
     }
 
-    private fun press(k: Key) {
+    private fun press(id: Int, k: Key) {
+        if (k.lp.isEmpty()) { fire(k); return }
+        val r = Runnable { fired.add(id); fire(Key.spec(k.lp)) }
+        pend[id] = r
+        hd.postDelayed(r, 350)
+    }
+
+    private fun release(id: Int) {
+        val k = down.remove(id)
+        pend.remove(id)?.let { hd.removeCallbacks(it) }
+        if (k != null && k.lp.isNotEmpty() && !fired.remove(id)) fire(k)
+        stopRep(); invalidate()
+    }
+
+    private fun fire(k: Key) {
         if (haptic) performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
         onKey(k)
-        if ((k.type == "act" && k.value == "DEL") || (k.type == "code" && k.value.startsWith("DPAD"))) startRep(k)
+        val repeatable = (k.type == "act" && k.value == "DEL") ||
+            (k.type == "code" && (k.value.startsWith("DPAD") || k.value == "DEL" || k.value == "FORWARD_DEL"))
+        if (repeatable) startRep(k)
+        invalidate()
     }
 
     private fun startRep(k: Key) {
